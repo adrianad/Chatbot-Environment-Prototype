@@ -29,6 +29,7 @@ services:
 
   mcpo_proxy:
     image: ghcr.io/open-webui/mcpo:main
+    conatiner_name: mcpo_proxy
     command: >
       uvx --force-reinstall mcpo --port 8005 --config /app/mcpo-config.json
     ports:
