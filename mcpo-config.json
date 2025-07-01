@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "command": "uv",
+      "args": [
+        "run",
+        "postgres-mcp",
+        "--access-mode=unrestricted"
+      ],
+      "env": {
+        "DATABASE_URI": "postgresql://mcp_readonly:mcp_readonly_pass@localhost:5432/bfabric"
+      }
+    },
+    "knowledge-graph": {
+  "command": "uvx",
+        "args": ["--force-reinstall", "--from", "/scratch/adrian/knowledge-graph-schema", "python", "-m", "relational_kg.mcp_server"],
+        "env": {
+          "NEO4J_URI": "bolt://localhost:7687",
+          "NEO4J_USER": "neo4j",
+          "NEO4J_PASSWORD": "password123"
+        } 
+    }
+  }
+}

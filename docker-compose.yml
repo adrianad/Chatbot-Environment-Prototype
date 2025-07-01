@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "3000:8080"
+    environment:
+      - WEBUI_AUTH=False
+    volumes:
+      - ./open-webui-data:/app/backend/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15
+    container_name: postgres-db
+    environment:
+      - POSTGRES_DB=bfabric
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+      - ./bfabric_dump.sql.gz:/bfabric_dump.sql.gz:ro
+    restart: unless-stopped
+
+  mcpo_proxy:
+    image: ghcr.io/open-webui/mcpo:main
+    command: >
+      uvx mcpo --force-reinstall --port 8005 --config /app/mcpo-config.json
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./mcpo-config.json:/app/mcpo-config.json:ro
+    depends_on:
+      - postgres
+

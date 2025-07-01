@@ -1,0 +1,6 @@
+# Database dumps
+bfabric_dump.sql.gz
+*.sql.gz
+
+# Open WebUI data
+open-webui-data/
