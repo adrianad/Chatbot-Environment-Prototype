@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "postgres": {
-      "command": "uv",
+      "command": "uvx",
       "args": [
-        "run",
         "postgres-mcp",
         "--access-mode=unrestricted"
       ],
