@@ -4,3 +4,6 @@ bfabric_dump.sql.gz
 
 # Open WebUI data
 open-webui-data/
+
+# MCPO output logs
+output/
