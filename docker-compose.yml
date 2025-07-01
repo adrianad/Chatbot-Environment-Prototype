@@ -28,7 +28,9 @@ services:
     restart: unless-stopped
 
   mcpo_proxy:
-    image: ghcr.io/open-webui/mcpo:main
+    build:
+      context: ./mcpo
+      dockerfile: Dockerfile
     container_name: mcpo_proxy
     command: >
       uvx mcpo --port 8005 --config /app/mcpo-config.json
