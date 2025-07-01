@@ -6,6 +6,8 @@
         "run",
         "-i",
         "--rm",
+        "--name",
+        "postgres-mcp",
         "-e",
         "DATABASE_URI",
         "crystaldba/postgres-mcp",

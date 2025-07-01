@@ -27,19 +27,4 @@ services:
       - ./bfabric_dump.sql.gz:/bfabric_dump.sql.gz:ro
     restart: unless-stopped
 
-  mcpo_proxy:
-    build:
-      context: ./mcpo
-      dockerfile: Dockerfile
-    container_name: mcpo_proxy
-    command: >
-      uvx mcpo --port 8005 --config /app/mcpo-config.json
-    ports:
-      - "8005:8005"
-    volumes:
-      - ./mcpo-config.json:/app/mcpo-config.json:ro
-      - ./scratch/adrian/knowledge-graph-schema:/scratch/adrian/knowledge-graph-schema:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - postgres
 
