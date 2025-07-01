@@ -1,10 +1,15 @@
 {
   "mcpServers": {
-    "postgres": {
-      "command": "uvx",
+      "postgres": {
+      "command": "docker",
       "args": [
-        "postgres-mcp",
-        "--access-mode=unrestricted"
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "DATABASE_URI",
+        "crystaldba/postgres-mcp",
+        "--access-mode=restricted"
       ],
       "env": {
         "DATABASE_URI": "postgresql://mcp_readonly:mcp_readonly_pass@localhost:5432/bfabric"
