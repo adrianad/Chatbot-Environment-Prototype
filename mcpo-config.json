@@ -25,6 +25,10 @@
           "NEO4J_USER": "neo4j",
           "NEO4J_PASSWORD": "password123"
         } 
+    },
+    "r2r": {
+      "command": "mcp",
+      "args": ["run", "/my/path/to/R2R/py/r2r/mcp.py"]
     }
   }
 }
