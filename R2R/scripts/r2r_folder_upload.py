@@ -32,9 +32,10 @@ except ImportError as e:
 # CONFIGURATION - MODIFY THESE VALUES
 # =============================================================================
 
-FOLDER_PATH = "test"  # Change this to your folder path
-COLLECTION_NAME = "test-collection"      # Change this to your collection name
+FOLDER_PATH = "/srv/bfabriclocal/Desktop/Data - Intranet + wiki/wiki_pages"  # Change this to your folder path
+COLLECTION_NAME = "Bfabric-Wiki"      # Change this to your collection name
 R2R_BASE_URL = "http://fgcz-h-190:7272"  # Change if using different R2R server
+MAX_WORKERS = 7                         # Number of concurrent workers (1-10 recommended)
 
 # =============================================================================
 # SUPPORTED FILE FORMATS
@@ -56,24 +57,19 @@ SUPPORTED_EXTENSIONS = {
 }
 
 class R2RFolderUploader:
-    def __init__(self, base_url: str = R2R_BASE_URL, max_concurrent_uploads: int = 3, max_concurrent_extractions: int = 5):
+    def __init__(self, base_url: str = R2R_BASE_URL, max_workers: int = 3):
         """Initialize the R2R client."""
         self.client = R2RClient(base_url=base_url)
         self.uploaded_documents = []
-        self.max_concurrent_uploads = max_concurrent_uploads
-        self.max_concurrent_extractions = max_concurrent_extractions
-        self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
-        self.extraction_semaphore = asyncio.Semaphore(max_concurrent_extractions)
-        self.extraction_results = {
-            'successful': [],
-            'failed': [],
-            'total_entities': 0,
-            'total_relationships': 0
-        }
-        self.upload_stats = {
+        self.max_workers = max_workers
+        self.results = {
             'uploaded': [],
             'failed': [],
-            'skipped': []
+            'skipped': [],
+            'extracted': [],
+            'extraction_failed': [],
+            'total_entities': 0,
+            'total_relationships': 0
         }
         self.results_lock = asyncio.Lock()
         
@@ -127,30 +123,72 @@ class R2RFolderUploader:
             print(f"✗ Error managing collection: {e}")
             return False
     
-    async def upload_file(self, file_path: Path, collection_name: str, collection_id: str) -> Dict[str, Any]:
-        """Upload a single file."""
-        async with self.upload_semaphore:
-            result = {
-                'file_path': str(file_path),
-                'upload_status': 'pending',
-                'document_id': None,
-                'error': None
-            }
-            
+    async def process_file_worker(self, file_queue: asyncio.Queue, collection_name: str, collection_id: str, worker_id: int):
+        """Worker that processes files from the queue: upload → extract."""
+        while True:
             try:
-                print(f"🔼 Uploading {file_path.name}")
+                # Get next file from queue
+                file_path = await file_queue.get()
+                if file_path is None:  # Sentinel to stop worker
+                    break
                 
-                # Convert collection_id to string for JSON serialization
-                collection_id_str = str(collection_id)
+                print(f"🔄 Worker {worker_id}: Processing {file_path.name}")
                 
-                # Upload document
-                try:
-                    # Try with collection_ids parameter (array)
+                # Step 1: Upload the file
+                upload_result = await self.upload_file(file_path, collection_name, collection_id, worker_id)
+                
+                # Step 2: If upload successful, immediately extract entities
+                if upload_result['upload_status'] == 'success' and upload_result['document_id']:
+                    extraction_result = await self.extract_entities(upload_result, worker_id)
+                    
+                print(f"✅ Worker {worker_id}: Completed {file_path.name}")
+                
+                # Mark task as done
+                file_queue.task_done()
+                
+            except Exception as e:
+                print(f"❌ Worker {worker_id}: Error processing file: {e}")
+                file_queue.task_done()
+
+    async def upload_file(self, file_path: Path, collection_name: str, collection_id: str, worker_id: int) -> Dict[str, Any]:
+        """Upload a single file."""
+        result = {
+            'file_path': str(file_path),
+            'upload_status': 'pending',
+            'document_id': None,
+            'error': None
+        }
+        
+        try:
+            print(f"🔼 Worker {worker_id}: Uploading {file_path.name}")
+            
+            # Convert collection_id to string for JSON serialization
+            collection_id_str = str(collection_id)
+            
+            # Upload document
+            try:
+                # Try with collection_ids parameter (array)
+                upload_result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.client.documents.create(
+                        file_path=str(file_path),
+                        collection_ids=[collection_id_str] if collection_id != collection_name else None,
+                        metadata={
+                            "collection": collection_name,
+                            "collection_id": collection_id_str,
+                            "source_folder": str(file_path.parent),
+                            "file_size": file_path.stat().st_size,
+                            "file_type": file_path.suffix.lower()
+                        }
+                    )
+                )
+            except Exception as e1:
+                if "collection_ids" in str(e1) or "unexpected keyword argument" in str(e1):
+                    # Try without collection_ids parameter
                     upload_result = await asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda: self.client.documents.create(
                             file_path=str(file_path),
-                            collection_ids=[collection_id_str] if collection_id != collection_name else None,
                             metadata={
                                 "collection": collection_name,
                                 "collection_id": collection_id_str,
@@ -160,143 +198,124 @@ class R2RFolderUploader:
                             }
                         )
                     )
-                except Exception as e1:
-                    if "collection_ids" in str(e1) or "unexpected keyword argument" in str(e1):
-                        # Try without collection_ids parameter
-                        upload_result = await asyncio.get_event_loop().run_in_executor(
-                            None,
-                            lambda: self.client.documents.create(
-                                file_path=str(file_path),
-                                metadata={
-                                    "collection": collection_name,
-                                    "collection_id": collection_id_str,
-                                    "source_folder": str(file_path.parent),
-                                    "file_size": file_path.stat().st_size,
-                                    "file_type": file_path.suffix.lower()
-                                }
-                            )
-                        )
-                    else:
-                        raise e1
-                
-                # Extract document ID
-                document_id = None
-                try:
-                    if hasattr(upload_result, 'results') and hasattr(upload_result.results, 'document_id'):
-                        document_id = upload_result.results.document_id
-                    elif hasattr(upload_result, 'document_id'):
-                        document_id = upload_result.document_id
-                    elif hasattr(upload_result, 'id'):
-                        document_id = upload_result.id
-                except Exception as e:
-                    print(f"    ⚠️  Error extracting document ID for {file_path.name}: {e}")
-                
-                if document_id:
-                    result['document_id'] = document_id
-                    result['upload_status'] = 'success'
-                    print(f"✅ Uploaded {file_path.name} -> {document_id}")
-                    
-                    async with self.results_lock:
-                        self.upload_stats['uploaded'].append(result)
                 else:
-                    result['upload_status'] = 'failed'
-                    result['error'] = 'Could not extract document ID'
-                    async with self.results_lock:
-                        self.upload_stats['failed'].append(result)
-                
+                    raise e1
+            
+            # Extract document ID
+            document_id = None
+            try:
+                if hasattr(upload_result, 'results') and hasattr(upload_result.results, 'document_id'):
+                    document_id = upload_result.results.document_id
+                elif hasattr(upload_result, 'document_id'):
+                    document_id = upload_result.document_id
+                elif hasattr(upload_result, 'id'):
+                    document_id = upload_result.id
             except Exception as e:
-                error_str = str(e)
+                print(f"    ⚠️  Worker {worker_id}: Error extracting document ID for {file_path.name}: {e}")
+            
+            if document_id:
+                result['document_id'] = document_id
+                result['upload_status'] = 'success'
+                print(f"✅ Worker {worker_id}: Uploaded {file_path.name} -> {document_id}")
                 
-                # Check if it's a duplicate document error
-                if "already exists" in error_str:
-                    result['upload_status'] = 'skipped'
-                    result['error'] = 'Document already exists'
-                    print(f"⏭️  Skipped {file_path.name}: Already exists")
-                    async with self.results_lock:
-                        self.upload_stats['skipped'].append(result)
-                else:
-                    result['upload_status'] = 'failed'
-                    result['error'] = error_str
-                    print(f"❌ Failed to upload {file_path.name}: {error_str}")
-                    async with self.results_lock:
-                        self.upload_stats['failed'].append(result)
+                async with self.results_lock:
+                    self.results['uploaded'].append(result)
+            else:
+                result['upload_status'] = 'failed'
+                result['error'] = 'Could not extract document ID'
+                async with self.results_lock:
+                    self.results['failed'].append(result)
             
-            return result
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check if it's a duplicate document error
+            if "already exists" in error_str:
+                result['upload_status'] = 'skipped'
+                result['error'] = 'Document already exists'
+                print(f"⏭️  Worker {worker_id}: Skipped {file_path.name} (already exists)")
+                async with self.results_lock:
+                    self.results['skipped'].append(result)
+            else:
+                result['upload_status'] = 'failed'
+                result['error'] = error_str
+                print(f"❌ Worker {worker_id}: Failed to upload {file_path.name}: {error_str}")
+                async with self.results_lock:
+                    self.results['failed'].append(result)
+        
+        return result
 
-    async def extract_entities(self, document_info: Dict[str, Any]) -> Dict[str, Any]:
+    async def extract_entities(self, document_info: Dict[str, Any], worker_id: int) -> Dict[str, Any]:
         """Extract entities from a single document."""
-        async with self.extraction_semaphore:
-            document_id = document_info['document_id']
-            file_path = document_info['file_path']
-            file_name = Path(file_path).name
+        document_id = document_info['document_id']
+        file_path = document_info['file_path']
+        file_name = Path(file_path).name
+        
+        result = {
+            'document_id': document_id,
+            'file_path': file_path,
+            'extraction_status': 'pending',
+            'entities_count': 0,
+            'relationships_count': 0,
+            'error': None
+        }
+        
+        try:
+            print(f"🔍 Worker {worker_id}: Extracting entities from {file_name}")
             
-            result = {
-                'document_id': document_id,
-                'file_path': file_path,
-                'extraction_status': 'pending',
-                'entities_count': 0,
-                'relationships_count': 0,
-                'error': None
-            }
+            extract_result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.client.documents.extract(id=document_id)
+            )
+            
+            # Count entities and relationships
+            entities_count = 0
+            relationships_count = 0
             
             try:
-                print(f"🔍 Extracting entities from {file_name}")
+                if hasattr(extract_result, 'results'):
+                    results_obj = extract_result.results
+                    if hasattr(results_obj, 'entities'):
+                        entities_count = len(results_obj.entities) if results_obj.entities else 0
+                    if hasattr(results_obj, 'relationships'):
+                        relationships_count = len(results_obj.relationships) if results_obj.relationships else 0
+                elif hasattr(extract_result, 'entities'):
+                    entities_count = len(extract_result.entities) if extract_result.entities else 0
+                elif hasattr(extract_result, 'relationships'):
+                    relationships_count = len(extract_result.relationships) if extract_result.relationships else 0
                 
-                extract_result = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.client.documents.extract(id=document_id)
-                )
-                
-                # Count entities and relationships
-                entities_count = 0
-                relationships_count = 0
-                
-                try:
-                    if hasattr(extract_result, 'results'):
-                        results_obj = extract_result.results
-                        if hasattr(results_obj, 'entities'):
-                            entities_count = len(results_obj.entities) if results_obj.entities else 0
-                        if hasattr(results_obj, 'relationships'):
-                            relationships_count = len(results_obj.relationships) if results_obj.relationships else 0
-                    elif hasattr(extract_result, 'entities'):
-                        entities_count = len(extract_result.entities) if extract_result.entities else 0
-                    elif hasattr(extract_result, 'relationships'):
-                        relationships_count = len(extract_result.relationships) if extract_result.relationships else 0
-                    
-                    # If no counts but indicates success, assume some extraction occurred
-                    if entities_count == 0 and relationships_count == 0:
-                        if (hasattr(extract_result, 'message') or 
-                            str(extract_result).lower().find('success') >= 0):
-                            entities_count = 1  # Placeholder
-                except Exception:
-                    pass
-                
-                result['extraction_status'] = 'success'
-                result['entities_count'] = entities_count
-                result['relationships_count'] = relationships_count
-                
-                print(f"✅ Extracted from {file_name}: {entities_count} entities, {relationships_count} relationships")
-                
-                async with self.results_lock:
-                    self.extraction_results['total_entities'] += entities_count
-                    self.extraction_results['total_relationships'] += relationships_count
-                    self.extraction_results['successful'].append(result)
-                
-            except Exception as e:
-                result['extraction_status'] = 'failed'
-                result['error'] = str(e)
-                print(f"❌ Failed to extract from {file_name}: {e}")
-                
-                async with self.results_lock:
-                    self.extraction_results['failed'].append(result)
+                # If no counts but indicates success, assume some extraction occurred
+                if entities_count == 0 and relationships_count == 0:
+                    if (hasattr(extract_result, 'message') or 
+                        str(extract_result).lower().find('success') >= 0):
+                        entities_count = 1  # Placeholder
+            except Exception:
+                pass
             
-            return result
+            result['extraction_status'] = 'success'
+            result['entities_count'] = entities_count
+            result['relationships_count'] = relationships_count
+            
+            print(f"✅ Worker {worker_id}: Extracted from {file_name}: {entities_count} entities, {relationships_count} relationships")
+            
+            async with self.results_lock:
+                self.results['total_entities'] += entities_count
+                self.results['total_relationships'] += relationships_count
+                self.results['extracted'].append(result)
+            
+        except Exception as e:
+            result['extraction_status'] = 'failed'
+            result['error'] = str(e)
+            print(f"❌ Worker {worker_id}: Failed to extract from {file_name}: {e}")
+            
+            async with self.results_lock:
+                self.results['extraction_failed'].append(result)
+        
+        return result
 
-    async def upload_files_concurrently(self, files: List[Path], collection_name: str) -> List[Dict[str, Any]]:
-        """Upload files concurrently and extract entities as soon as each upload completes."""
-        print(f"\n📤 Processing {len(files)} files concurrently:")
-        print(f"   🔼 Max concurrent uploads: {self.max_concurrent_uploads}")
-        print(f"   🔍 Max concurrent extractions: {self.max_concurrent_extractions}")
+    async def process_files_with_workers(self, files: List[Path], collection_name: str) -> List[Dict[str, Any]]:
+        """Process files using worker queue approach."""
+        print(f"\n📤 Processing {len(files)} files with {self.max_workers} workers")
         
         # Get collection ID once at the start
         collection_id = self.get_collection_id(collection_name)
@@ -306,60 +325,50 @@ class R2RFolderUploader:
         else:
             print(f"    ✓ Using collection ID: {collection_id}")
         
-        # Start upload tasks for all files
-        upload_tasks = [
-            self.upload_file(file_path, collection_name, collection_id)
-            for file_path in files
-        ]
+        # Create a queue and add all files to it
+        file_queue = asyncio.Queue()
+        for file_path in files:
+            await file_queue.put(file_path)
         
-        # List to track extraction tasks
-        extraction_tasks = []
-        successful_uploads = []
+        # Create and start workers
+        workers = []
+        for i in range(self.max_workers):
+            worker = asyncio.create_task(
+                self.process_file_worker(file_queue, collection_name, collection_id, i + 1)
+            )
+            workers.append(worker)
         
-        # Process uploads as they complete and immediately start extractions
-        for upload_task in asyncio.as_completed(upload_tasks):
-            try:
-                upload_result = await upload_task
-                
-                if upload_result['upload_status'] == 'success' and upload_result['document_id']:
-                    successful_uploads.append(upload_result)
-                    
-                    # Immediately start extraction for this document
-                    extraction_task = self.extract_entities(upload_result)
-                    extraction_tasks.append(extraction_task)
-                    
-            except Exception as e:
-                print(f"✗ Upload task failed: {e}")
+        # Wait for all files to be processed
+        await file_queue.join()
         
-        # Wait for all extractions to complete
-        if extraction_tasks:
-            print(f"\n🔍 Waiting for {len(extraction_tasks)} extractions to complete...")
-            await asyncio.gather(*extraction_tasks, return_exceptions=True)
+        # Stop workers by sending sentinel values
+        for i in range(self.max_workers):
+            await file_queue.put(None)
+        
+        # Wait for workers to finish
+        await asyncio.gather(*workers)
         
         # Print summary
-        uploaded_count = len(self.upload_stats['uploaded'])
-        skipped_count = len(self.upload_stats['skipped'])
-        failed_count = len(self.upload_stats['failed'])
+        uploaded_count = len(self.results['uploaded'])
+        skipped_count = len(self.results['skipped'])
+        failed_count = len(self.results['failed'])
+        extracted_count = len(self.results['extracted'])
+        extraction_failed_count = len(self.results['extraction_failed'])
         
-        print(f"\n📊 Upload Summary:")
-        print(f"✓ Successfully uploaded: {uploaded_count} files")
+        print(f"\n📊 Final Summary:")
+        print(f"✅ Successfully uploaded: {uploaded_count} files")
         if skipped_count > 0:
             print(f"⏭️  Skipped duplicates: {skipped_count} files")
         if failed_count > 0:
-            print(f"✗ Failed uploads: {failed_count} files")
+            print(f"❌ Failed uploads: {failed_count} files")
         
-        # Print extraction summary
-        successful_extractions = len(self.extraction_results['successful'])
-        failed_extractions = len(self.extraction_results['failed'])
+        print(f"✅ Successfully extracted: {extracted_count} documents")
+        print(f"📊 Total entities found: {self.results['total_entities']}")
+        print(f"🔗 Total relationships found: {self.results['total_relationships']}")
+        if extraction_failed_count > 0:
+            print(f"❌ Failed extractions: {extraction_failed_count} documents")
         
-        print(f"\n🔍 Extraction Summary:")
-        print(f"✓ Successfully extracted from: {successful_extractions} documents")
-        print(f"📊 Total entities found: {self.extraction_results['total_entities']}")
-        print(f"🔗 Total relationships found: {self.extraction_results['total_relationships']}")
-        if failed_extractions > 0:
-            print(f"✗ Failed extractions: {failed_extractions} documents")
-        
-        return successful_uploads
+        return self.results['uploaded']
     
     def extract_entities_and_relationships(self, uploaded_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Extract entities and relationships from uploaded documents."""
@@ -609,8 +618,8 @@ class R2RFolderUploader:
             if not self.create_collection_if_needed(collection_name):
                 return {'status': 'collection_error'}
             
-            # Step 3: Upload files and extract entities concurrently
-            uploaded_docs = await self.upload_files_concurrently(files, collection_name)
+            # Step 3: Process files with workers (upload + extract)
+            uploaded_docs = await self.process_files_with_workers(files, collection_name)
             if not uploaded_docs:
                 print("⚠️  No files processed successfully. Exiting.")
                 return {'status': 'upload_failed'}
@@ -627,16 +636,16 @@ class R2RFolderUploader:
             print(f"⏱️  Total time: {duration:.2f} seconds")
             print(f"📄 Files processed: {len(files)}")
             print(f"📤 Successfully uploaded: {len(uploaded_docs)}")
-            print(f"🔍 Successful extractions: {len(self.extraction_results['successful'])}")
-            print(f"📊 Total entities: {self.extraction_results['total_entities']}")
-            print(f"🔗 Total relationships: {self.extraction_results['total_relationships']}")
+            print(f"🔍 Successful extractions: {len(self.results['extracted'])}")
+            print(f"📊 Total entities: {self.results['total_entities']}")
+            print(f"🔗 Total relationships: {self.results['total_relationships']}")
             print(f"🕸️  Knowledge graph: {graph_stats['status']}")
             
             return {
                 'status': 'success',
                 'files_found': len(files),
                 'files_uploaded': len(uploaded_docs),
-                'extractions': self.extraction_results,
+                'extractions': self.results,
                 'graph': graph_stats,
                 'duration': duration
             }
@@ -661,8 +670,7 @@ async def main():
     # Create uploader and run workflow
     uploader = R2RFolderUploader(
         base_url=R2R_BASE_URL, 
-        max_concurrent_uploads=3,      # 3 files uploading simultaneously 
-        max_concurrent_extractions=5   # 5 extractions running simultaneously
+        max_workers=MAX_WORKERS
     )
     result = await uploader.run_complete_workflow(FOLDER_PATH, COLLECTION_NAME)
     
