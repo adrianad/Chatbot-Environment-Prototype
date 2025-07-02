@@ -1,0 +1,17 @@
+model_list:
+  - model_name: LLM
+    litellm_params:
+      model: hosted_vllm/Qwen/Qwen3-30B-A3B-FP8
+      api_base: http://fgcz-r-023:8000/v1
+  - model_name: FAST_LLM
+    litellm_params:
+      model: hosted_vllm/Qwen/Qwen3-30B-A3B-FP8
+      api_base: http://fgcz-r-023:8000/v1
+  - model_name: Embedding
+    litellm_params:
+      model: hosted_vllm/Qwen/Qwen3-Embedding-4B
+      api_base: http://fgcz-r-023:8001/v1
+
+litellm_settings:
+  callbacks: 
+    - custom_prompt.logger_callback

@@ -1,0 +1,31 @@
+[app]
+fast_llm = "openai/FAST_LLM" # We maybe need to add /no_think in the source code of R2R
+quality_llm = "openai/LLM"
+reasoning_llm = "openai/LLM"
+planning_llm = "openai/LLM"
+
+[completion]
+provider = "litellm"
+concurrent_request_limit = 64
+
+  [completion.generation_config]
+  temperature = 0.1
+  top_p = 1
+  max_tokens_to_sample = 4_096
+  stream = false
+  add_generation_kwargs = { }
+
+[embedding]
+provider = "litellm"
+base_model = "openai/Embedding"
+base_dimension = nan
+concurrent_request_limit = 256
+max_retries = 3
+initial_backoff = 1.0
+max_backoff = 64.0
+
+[completion_embedding]
+provider = "litellm"
+base_model = "openai/Embedding"
+base_dimension = nan
+concurrent_request_limit = 256
