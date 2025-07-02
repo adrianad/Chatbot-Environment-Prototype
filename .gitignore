@@ -9,3 +9,15 @@ open-webui-data/
 output/
 
 __pycache__/
+
+# UV virtual environments
+.venv/
+venv/
+.uv/
+uv.lock
+
+# Python virtual environments
+env/
+ENV/
+env.bak/
+venv.bak/
