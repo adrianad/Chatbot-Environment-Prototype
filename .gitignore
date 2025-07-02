@@ -7,3 +7,5 @@ open-webui-data/
 
 # MCPO output logs
 output/
+
+__pycache__/
