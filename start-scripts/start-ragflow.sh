@@ -1,0 +1,1 @@
+docker-compose -f ../Ragflow/docker/docker-compose-base.yml -f ../Ragflow/docker/docker-compose.yml up -d
