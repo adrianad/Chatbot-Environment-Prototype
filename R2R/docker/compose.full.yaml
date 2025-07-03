@@ -13,8 +13,6 @@ volumes:
     name: hatchet_postgres_data
   minio_data:
     name: minio_data
-  postgres_data:
-    name: postgres_data
 
 services:
   postgres:
@@ -23,7 +21,7 @@ services:
     env_file:
       - ./env/postgres.env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./r2r_postgres_data:/var/lib/postgresql/data
     ports:
       - "5433:5433"
     healthcheck:
