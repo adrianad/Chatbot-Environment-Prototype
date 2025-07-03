@@ -28,7 +28,7 @@
     },
     "r2r": {
       "command": "mcp",
-      "args": ["run", "R2R/mcp.py"]
+      "args": ["run", "../R2R/mcp.py"]
     }
   }
 }
