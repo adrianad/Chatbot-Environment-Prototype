@@ -29,6 +29,5 @@ Ragflow/docker/esdata01/
 Ragflow/docker/history_data_agent/
 Ragflow/docker/minio_data/
 Ragflow/docker/mysql_data/
-Ragflow/docker/nginx/
 Ragflow/docker/ragflow-logs/
 Ragflow/docker/redis_data/
