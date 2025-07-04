@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Bubble</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+
+        .chat-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .chat-bubble {
+            width: 60px;
+            height: 60px;
+            background: #007bff;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .chat-bubble:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+        }
+
+        .chat-bubble svg {
+            width: 28px;
+            height: 28px;
+            fill: white;
+        }
+
+        .chat-window {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 40vw;
+            height: 60vh;
+            min-width: 400px;
+            min-height: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transform: scale(0.8) translateY(20px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        .chat-window.open {
+            transform: scale(1) translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .chat-header {
+            background: #007bff;
+            color: white;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-header h3 {
+            margin: 0;
+            font-size: 16px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chat-iframe {
+            width: 100%;
+            height: calc(100% - 60px);
+            border: none;
+        }
+
+        @media (max-width: 480px) {
+            .chat-window {
+                width: 90vw;
+                height: 70vh;
+                right: 5vw;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Your Website Content</h1>
+    <p>This is your main page content. The chat bubble will appear in the bottom right corner.</p>
+
+    <div class="chat-container">
+        <div class="chat-bubble" id="chatBubble">
+            <svg viewBox="0 0 24 24">
+                <path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h4l4 4 4-4h4c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
+            </svg>
+        </div>
+        
+        <div class="chat-window" id="chatWindow">
+            <div class="chat-header">
+                <h3>Chat Support</h3>
+                <button class="close-btn" id="closeBtn">&times;</button>
+            </div>
+            <iframe 
+                class="chat-iframe"
+                src="http://fgcz-h-190/chat/share?shared_id=bd9da566580811f09cff0242c0a83006&from=chat&auth=NkZDcwZDgyNTgwODExZjA5NWZhMDI0Mm&locale=en"
+                frameborder="0">
+            </iframe>
+        </div>
+    </div>
+
+    <script>
+        const chatBubble = document.getElementById('chatBubble');
+        const chatWindow = document.getElementById('chatWindow');
+        const closeBtn = document.getElementById('closeBtn');
+
+        chatBubble.addEventListener('click', () => {
+            chatWindow.classList.add('open');
+        });
+
+        closeBtn.addEventListener('click', () => {
+            chatWindow.classList.remove('open');
+        });
+
+        // Close when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!chatBubble.contains(e.target) && !chatWindow.contains(e.target)) {
+                chatWindow.classList.remove('open');
+            }
+        });
+    </script>
+</body>
+</html>

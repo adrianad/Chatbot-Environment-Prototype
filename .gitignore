@@ -31,3 +31,6 @@ Ragflow/docker/minio_data/
 Ragflow/docker/mysql_data/
 Ragflow/docker/ragflow-logs/
 Ragflow/docker/redis_data/
+
+
+Genomics/Bowtie-2/
